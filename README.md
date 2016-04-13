@@ -100,3 +100,8 @@ Once this is installed, create an isolated Anaconda nevironment for the meetup, 
 conda create --name meetup_env --file conda-requirements.txt
 source activate meetup_env
 ```
+
+In addition, install the cssutils package using pip inside that environment as:
+```bash
+pip install --user cssutils
+```
