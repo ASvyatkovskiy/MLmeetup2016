@@ -44,9 +44,9 @@ def main(argv):
  
     #train CV split, stratified sampling
     #1 is under represented class
-    fractions = {1.0:1.0, 0.0:0.15}
+    fractions = {1.0:1.0, 0.0:0.2}
     stratified = train_wlabels_df.sampleBy("label", fractions, 36L)
-    train, cv = train_wlabels_df.randomSplit([0.7, 0.3])
+    train, cv = train_wlabels_df.randomSplit([0.8, 0.2])
 
     print "Prepare text features..."
     # Configure an ML pipeline, which consists of tree stages: tokenizer, hashingTF, and lr.
@@ -92,7 +92,8 @@ def main(argv):
     #Note that the evaluator here is a BinaryClassificationEvaluator and its default metric
     #is areaUnderROC.
     #metricName options are: areaUnderROC|areaUnderPR)
-    ev = BinaryClassificationEvaluator(metricName="areaUnderROC")
+    metricName = "areaUnderPR"
+    ev = BinaryClassificationEvaluator(metricName=metricName)
     #Alternative: user multiclass classification evaluator
     #metricName options are f1, precision, recall
     #ev = MulticlassClassificationEvaluator(metricName="f1")
@@ -100,7 +101,7 @@ def main(argv):
     crossval = CrossValidator(estimator=pipeline,
                               estimatorParamMaps=paramGrid,
                               evaluator=ev,
-                              numFolds=2)  # use 3+ folds in practice
+                              numFolds=3)
 
     #below is the single pipeline vs parameter search switch 
     # Fit the pipeline to training documents.
@@ -109,10 +110,13 @@ def main(argv):
 
     print "Evaluate model on test instances and compute test error..."
     prediction = model.transform(cv)
-    prediction.select("id", "text", "probability", "prediction").show(5)
+    prediction.select("label", "text", "probability", "prediction").show(100)
 
-    accuracy = ev.evaluate(prediction)
-    print "CV Error = " + str(1.0 - accuracy)
+    result = ev.evaluate(prediction)
+    print metricName,": ", result
+
+    cvErr = prediction.filter(prediction.label == prediction.prediction).count() / float(cv.count())
+    print 'CV Error = ' + str(cvErr)
 
 if __name__ == "__main__":
    main(sys.argv)
