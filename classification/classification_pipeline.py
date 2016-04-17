@@ -11,6 +11,8 @@ from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 
+from pyspark.ml.feature import StringIndexer, VectorIndexer
+
 from pyspark.ml import Pipeline
 from pyspark.sql import Row
 
@@ -34,19 +36,17 @@ def main(argv):
     #input_df.printSchema()
     #train_label_df.printSchema()
     #input_df.show()
-    #print input_df.count()
 
     #Make DF with labels    
     train_wlabels_df = input_df.join(train_label_df,"id")
-    train_wlabels_df.repartition("label")
-    train_wlabels_df.explain
     #train_wlabels_df.printSchema()
- 
+
     #train CV split, stratified sampling
     #1 is under represented class
-    fractions = {1.0:1.0, 0.0:0.2}
+    fractions = {1.0:1.0, 0.0:1.0}
     stratified = train_wlabels_df.sampleBy("label", fractions, 36L)
-    train, cv = train_wlabels_df.randomSplit([0.8, 0.2])
+    stratified = stratified.repartition(200)
+    train, cv = stratified.randomSplit([0.7, 0.3])
 
     print "Prepare text features..."
     # Configure an ML pipeline, which consists of tree stages: tokenizer, hashingTF, and lr.
@@ -80,15 +80,17 @@ def main(argv):
     pipeline = Pipeline(stages=[tokenizer, remover, hashingTF, idf, lr])
 
     # Train a RandomForest model.
-    #rf = RandomForestClassifier(numTrees=10,impurity="gini",maxDepth=4,maxBins=32)
-    #pipeline = Pipeline(stages=[tokenizer, remover, hashingTF, idf, rf])
 
-    #Parameter search grid
-    paramGrid = ParamGridBuilder() \
-        .addGrid(hashingTF.numFeatures, [10, 20, 30]) \
-        .addGrid(lr.regParam, [0.1, 0.01]) \
-        .build()
-    
+    # Index labels, adding metadata to the label column.
+    # Fit on whole dataset to include all labels in index.
+    #labelIndexer = StringIndexer(inputCol="label", outputCol="indexedLabel")
+    # Automatically identify categorical features, and index them.
+    # Set maxCategories so features with > 4 distinct values are treated as continuous.
+    #featureIndexer = VectorIndexer(inputCol="features", outputCol="indexedFeatures", maxCategories=2)
+
+    #rf = RandomForestClassifier(labelCol="indexedLabel", featuresCol="indexedFeatures",numTrees=10,impurity="gini",maxDepth=4,maxBins=32)
+    #pipeline = Pipeline(stages=[tokenizer, remover, hashingTF, idf, labelIndexer, featureIndexer, rf])
+
     #Note that the evaluator here is a BinaryClassificationEvaluator and its default metric
     #is areaUnderROC.
     #metricName options are: areaUnderROC|areaUnderPR)
@@ -98,15 +100,8 @@ def main(argv):
     #metricName options are f1, precision, recall
     #ev = MulticlassClassificationEvaluator(metricName="f1")
 
-    crossval = CrossValidator(estimator=pipeline,
-                              estimatorParamMaps=paramGrid,
-                              evaluator=ev,
-                              numFolds=3)
-
-    #below is the single pipeline vs parameter search switch 
     # Fit the pipeline to training documents.
     model = pipeline.fit(train)
-    #model = crossval.fit(train)
 
     print "Evaluate model on test instances and compute test error..."
     prediction = model.transform(cv)
