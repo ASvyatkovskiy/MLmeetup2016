@@ -4,24 +4,24 @@ import org.apache.spark.sql.SQLContext
 import org.apache.spark.sql.functions._
 
 import org.apache.spark.ml.classification.LogisticRegression
-import org.apache.spark.ml.tuning.{CrossValidator, ParamGridBuilder}
+import org.apache.spark.ml.classification.{RandomForestClassificationModel, RandomForestClassifier}
 
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
+import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 
-//import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.ml.feature.{HashingTF, IDF}
 import org.apache.spark.ml.feature.{RegexTokenizer, Tokenizer}
 import org.apache.spark.ml.feature.NGram
 import org.apache.spark.ml.feature.StopWordsRemover
+import org.apache.spark.ml.feature.{IndexToString, StringIndexer, VectorIndexer}
+
+import org.apache.spark.ml.tuning.{ParamGridBuilder, CrossValidator}
 
 import org.apache.spark.sql.Row
-
 import org.apache.spark.sql.types._
 
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.WrappedArray
-
-import org.apache.spark.sql.functions.udf
 
 import org.apache.spark.mllib.linalg.{DenseVector, SparseVector, Vector, Vectors}
 
@@ -54,12 +54,14 @@ object ClassificationAdhoc {
        
   }
 
+  /* 
   def defineWeights(label: WrappedArray[Int]) : Double = {
       var weight: Double = 0.0
       //upscale under represented class
       if (label == 1.0) weight = 10.0 
       weight
   }
+  */
 
   //get type of var utility 
   def manOf[T: Manifest](t: T): Manifest[T] = manifest[T]
@@ -92,9 +94,7 @@ object ClassificationAdhoc {
     sqlContext.udf.register("countfeat", (s: WrappedArray[String]) => s.length)
     def countfeat_udf = udf((s: WrappedArray[String]) => s.length)
 
-
     //create udf that returns length of the list, 
-    //WrappedArray[String]
     val links_cnt_df = train_wlabels_df.withColumn("links_cnt",countfeat_udf(col("links")))
     links_cnt_df.printSchema()
     links_cnt_df.show()
@@ -120,10 +120,11 @@ object ClassificationAdhoc {
     //ngram = NGram(n=2, inputCol="filtered", outputCol="ngram")
     //ngram_df = ngram.transform(tokenized_df)
 
-    //perhaps combine ngrams and words 
+    //hashing
     var hashingTF = new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures").setNumFeatures(20)
     val featurized_df = hashingTF.transform(filtered_df).drop("filtered")
 
+    //idf weighting
     var idf = new IDF().setInputCol("rawFeatures").setOutputCol("pre_features")
     var idfModel = idf.fit(featurized_df)
     val rescaled_df = idfModel.transform(featurized_df).drop("rawFeatures")
@@ -136,43 +137,77 @@ object ClassificationAdhoc {
     adhoc_df.printSchema()
     adhoc_df.show()
 
-    //FIXME friday experimental
-    //sqlContext.udf.register("addhocfeat_appender", appendFeature _)
-    def defineWeights_udf = udf(defineWeights _)
-    adhoc_df = adhoc_df.withColumn("weights",defineWeights_udf(col("label")))
+    //FIXME experimental
+    //def defineWeights_udf = udf(defineWeights _)
+    //adhoc_df = adhoc_df.withColumn("weights",defineWeights_udf(col("label")))
+
+    //One can add more classifiers here
+    //Random forest example
+    //Index labels, adding metadata to the label column.
+    //Fit on whole dataset to include all labels in index.
+    val labelIndexer = new StringIndexer()
+      .setInputCol("label")
+      .setOutputCol("indexedLabel")
+      .fit(adhoc_df)
+
+    adhoc_df = labelIndexer.transform(adhoc_df) //.drop("rawFeatures")
+
+    // Automatically identify categorical features, and index them.
+    // Set maxCategories so features with > 4 distinct values are treated as continuous.
+    val featureIndexer = new VectorIndexer()
+      .setInputCol("features")
+      .setOutputCol("indexedFeatures")
+      .setMaxCategories(2)
+      .fit(adhoc_df)
+
+    adhoc_df = featureIndexer.transform(adhoc_df)
+
+    // Train a RandomForest model.
+    val rf = new RandomForestClassifier()
+      .setLabelCol("indexedLabel")
+      .setFeaturesCol("indexedFeatures")
+      .setNumTrees(10)
+      .setImpurity("gini")
+      .setMaxDepth(4)
+      .setMaxBins(32)
+
+    // Convert indexed labels back to original labels.
+    val labelConverter = new IndexToString()
+      .setInputCol("prediction")
+      .setOutputCol("predictedLabel")
+      .setLabels(labelIndexer.labels)
 
     //train CV split, stratified sampling
     //1 is under represented class
-    val fractions = Map(0 -> 1.0, 1 -> 1.0)
+    val fractions = Map(0 -> 1.0, 1 -> 0.5)
     val sampledData = adhoc_df.stat.sampleBy("label", fractions, 36L)
     val Array(train, cv) = sampledData.randomSplit(Array(0.8, 0.2))
-
-    //We can add more classifiers here. FIXME At least add RandomForest
-    var lr = new LogisticRegression().setMaxIter(10).setRegParam(0.3).setElasticNetParam(0.8)
 
     //Prepare evaluator
     val metricName = "areaUnderPR"
     var ev = new BinaryClassificationEvaluator().setMetricName(metricName)
 
     //parameter search grid
-    /*
-    var paramGrid = ParamGridBuilder()
-                    .addGrid(hashingTF.numFeatures, [10, 20, 30])
-                    .addGrid(lr.regParam, [0.1, 0.01]).build()
-   
-    //FIXME point to an actual estimator rather than a pipeline 
-    var crossval = CrossValidator(estimator=pipeline,
-                              estimatorParamMaps=paramGrid,
-                              evaluator=ev,
-                              numFolds=2)  # use 3+ folds in practice
-    */
+    //One can add more parameters to the grid
+    var paramGrid = new ParamGridBuilder()
+                    .addGrid(hashingTF.numFeatures, Array(10, 20, 100))
+                    .addGrid(rf.numTrees, Array(3, 5, 10))
+                    .build()
+  
+    //set estimator 
+    var crossval = new CrossValidator().setEstimator(rf).
+                              setEstimatorParamMaps(paramGrid).
+                              setEvaluator(ev).
+                              setNumFolds(3)
 
     //Below is the single model vs parameter search switch 
-    //model = crossval.fit(train)
-    var model = lr.fit(train)
+    var model = crossval.fit(train)
+    //var model = rf.fit(train)
 
     println("Evaluate model on test instances and compute test error...")
     var prediction = model.transform(cv)
+    prediction = labelConverter.transform(prediction) 
+    
     prediction.select("label", "text", "probability", "prediction").show(5)
 
     val result = ev.evaluate(prediction)
