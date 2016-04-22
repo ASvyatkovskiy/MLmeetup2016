@@ -92,7 +92,7 @@ def main(argv):
 
     print "Evaluate model on test instances and compute test error..."
     prediction = model.transform(cv)
-    prediction = labelConverter.transform(prediction)
+    #prediction = labelConverter.transform(prediction)
     prediction.select("label", "text", "probability", "prediction").show(100)
 
     result = ev.evaluate(prediction)
