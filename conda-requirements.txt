@@ -1,3 +1,4 @@
 ipython-notebook
 nltk
 beautifulsoup4
+numpy
