@@ -105,3 +105,20 @@ In addition, install the cssutils package using pip inside that environment as:
 ```bash
 pip install --user cssutils
 ```
+
+# Start the notebook
+
+Test that the necessary Spark environmental variables are properly set on your laptop:
+
+```bash
+echo $SPARK_HOME
+```
+
+(that should return a valid path in your filesystem, as opposed to an empty string)
+
+Start interactive ipython notebook:
+
+```bash
+#ipython notebook
+IPYTHON_OPTS="notebook" $SPARK_HOME/bin/pyspark
+```
