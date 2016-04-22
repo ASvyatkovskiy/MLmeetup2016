@@ -1,7 +1,7 @@
 from pyspark import SparkContext
 from pyspark.sql import SQLContext
 
-from pyspark.ml.classification import LogisticRegression, RandomForestClassifier
+from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml.feature import HashingTF, IDF
 from pyspark.ml.feature import RegexTokenizer, Tokenizer
 from pyspark.ml.feature import NGram
@@ -37,9 +37,8 @@ def main(argv):
     #train_label_df.printSchema()
     #input_df.show()
 
-    #Make DF with labels    
+    #Make DF with labels
     train_wlabels_df = input_df.join(train_label_df,"id")
-    #train_wlabels_df.printSchema()
 
     #train CV split, stratified sampling
     #1 is under represented class
@@ -52,10 +51,8 @@ def main(argv):
     # Configure an ML pipeline, which consists of tree stages: tokenizer, hashingTF, and lr.
     #tokenizer = Tokenizer(inputCol="text", outputCol="words")
     tokenizer = RegexTokenizer(inputCol="text", outputCol="words", pattern="\\W")
-    #tokenized_df = tokenizer.transform(train_wlabels_df)
-    #tokenized_df.show()
 
-    #remove stopwords 
+    #remove stopwords
     remover = StopWordsRemover(inputCol="words", outputCol="filtered")
     #filtered_df = remover.transform(tokenized_df)
     #filtered_df.printSchema()
@@ -67,29 +64,19 @@ def main(argv):
 
     #Hashing
     hashingTF = HashingTF(inputCol="filtered", outputCol="rawFeatures", numFeatures=20)
-    #featurized_df = hashingTF.transform(filtered_df)
-
     idf = IDF(inputCol="rawFeatures", outputCol="features")
-    #idfModel = idf.fit(featurized_df)
-    #rescaled_df = idfModel.transform(featurized_df)
-    #rescaled_df.printSchema()
 
     #Trying various classifiers here
-    #create a pipeline
-    lr = LogisticRegression(maxIter=10, regParam=0.3, elasticNetParam=0.8)
-    pipeline = Pipeline(stages=[tokenizer, remover, hashingTF, idf, lr])
-
-    # Train a RandomForest model.
 
     # Index labels, adding metadata to the label column.
     # Fit on whole dataset to include all labels in index.
-    #labelIndexer = StringIndexer(inputCol="label", outputCol="indexedLabel")
+    labelIndexer = StringIndexer(inputCol="label", outputCol="indexedLabel")
     # Automatically identify categorical features, and index them.
     # Set maxCategories so features with > 4 distinct values are treated as continuous.
-    #featureIndexer = VectorIndexer(inputCol="features", outputCol="indexedFeatures", maxCategories=2)
+    featureIndexer = VectorIndexer(inputCol="features", outputCol="indexedFeatures", maxCategories=2)
 
-    #rf = RandomForestClassifier(labelCol="indexedLabel", featuresCol="indexedFeatures",numTrees=10,impurity="gini",maxDepth=4,maxBins=32)
-    #pipeline = Pipeline(stages=[tokenizer, remover, hashingTF, idf, labelIndexer, featureIndexer, rf])
+    rf = RandomForestClassifier(labelCol="indexedLabel", featuresCol="indexedFeatures",numTrees=10,impurity="gini",maxDepth=4,maxBins=32)
+    pipeline = Pipeline(stages=[tokenizer, remover, hashingTF, idf, labelIndexer, featureIndexer, rf])
 
     #Note that the evaluator here is a BinaryClassificationEvaluator and its default metric
     #is areaUnderROC.
@@ -105,6 +92,7 @@ def main(argv):
 
     print "Evaluate model on test instances and compute test error..."
     prediction = model.transform(cv)
+    prediction = labelConverter.transform(prediction)
     prediction.select("label", "text", "probability", "prediction").show(100)
 
     result = ev.evaluate(prediction)
