@@ -54,15 +54,6 @@ object ClassificationAdhoc {
        
   }
 
-  /* 
-  def defineWeights(label: WrappedArray[Int]) : Double = {
-      var weight: Double = 0.0
-      //upscale under represented class
-      if (label == 1.0) weight = 10.0 
-      weight
-  }
-  */
-
   //get type of var utility 
   def manOf[T: Manifest](t: T): Manifest[T] = manifest[T]
 
@@ -136,10 +127,6 @@ object ClassificationAdhoc {
     var adhoc_df = rescaled_df.withColumn("features", appendFeature_udf(col("pre_features"),col("links_cnt"),col("images_cnt"))) 
     adhoc_df.printSchema()
     adhoc_df.show()
-
-    //FIXME experimental
-    //def defineWeights_udf = udf(defineWeights _)
-    //adhoc_df = adhoc_df.withColumn("weights",defineWeights_udf(col("label")))
 
     //One can add more classifiers here
     //Random forest example
