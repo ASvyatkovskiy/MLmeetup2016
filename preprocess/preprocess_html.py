@@ -15,10 +15,9 @@ ferr = open("errors_in_scraping.log","w")
 
 import re
 def clean_text(text_as_list):
-    #map(lambda x: re.sub(' +',' ',x),text_as_list)
     text_as_string = " ".join(text_as_list)
-    text_as_string = text_as_string.encode("utf8").translate(None,'=@&$/%?<>,[]{}()*.0123456789:;-\n\'"_').lower()
-    text_as_string = re.sub(' +',' ',text_as_string)
+    text_as_string = re.sub('\s+',' ',text_as_string)
+    text_as_string = text_as_string.encode("utf8").translate(None,'=@&$/%?<>,[]{}()*.0123456789:;-\'"_').lower()
 
     return text_as_string
 
